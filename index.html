@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Strava Neon GPS Heatmap Studio • Interactive Template</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  html, body, #map { width: 100%; height: 100%; margin: 0; background: #08090C; font-family: system-ui, -apple-system, sans-serif; color: #F1F5F9; overflow: hidden; }
+  .leaflet-container { background: #08090C !important; cursor: crosshair; }
+  .native-dark-tiles { filter: brightness(88%) contrast(115%); }
+  .dark-invert-tiles { filter: invert(100%) hue-rotate(180deg) brightness(82%) contrast(115%) saturate(55%); }
+  .dim-sat-tiles { filter: brightness(60%) contrast(115%); }
+
+  /* Left Control Panel */
+  .panel { position: absolute; top: 14px; left: 14px; z-index: 1000; background: rgba(14,17,24,0.93); border: 1px solid rgba(255,255,255,0.13); border-radius: 12px; padding: 14px 16px; width: 330px; backdrop-filter: blur(14px); box-shadow: 0 10px 30px rgba(0,0,0,0.7); max-height: calc(100vh - 28px); overflow-y: auto; }
+  h2 { margin: 0 0 3px 0; font-size: 14px; letter-spacing: 0.5px; color: #FFF; }
+  .sub { font-size: 11px; color: #00F5D4; font-weight: 600; margin-bottom: 10px; }
+  .sec-title { font-size: 10.5px; font-weight: 700; color: #CBD5E1; letter-spacing: 0.6px; margin: 12px 0 6px 0; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px; }
+  .row { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; margin: 5px 0; cursor: pointer; }
+  .swatch { display: inline-block; width: 14px; height: 4px; border-radius: 2px; margin-right: 8px; vertical-align: middle; }
+  .year-pills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .yr-btn { flex: 1 1 21%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: #CBD5E1; padding: 5px 4px; border-radius: 5px; font-size: 10.5px; font-weight: 600; cursor: pointer; text-align: center; }
+  .yr-btn:hover, .yr-btn.active { border-color: #00F5D4; background: rgba(0,245,212,0.18); color: #FFF; }
+  select { background: #131722; color: #F1F5F9; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 6px 8px; font-size: 12px; width: 100%; cursor: pointer; outline: none; }
+  select:focus { border-color: #00F5D4; }
+  .play-btn { background: rgba(0,245,212,0.15); border: 1px solid #00F5D4; color: #00F5D4; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; }
+  .play-btn:hover { background: rgba(0,245,212,0.28); color: #FFF; }
+  input[type="range"] { accent-color: #00F5D4; cursor: pointer; }
+
+  /* Bottom-Right Hover Inspector */
+  .inspector { position: absolute; bottom: 18px; right: 18px; z-index: 1000; width: 300px; background: rgba(14,17,24,0.94); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 14px 16px; backdrop-filter: blur(14px); box-shadow: 0 10px 30px rgba(0,0,0,0.75); transition: border-color 0.15s; }
+  .inspector.active { border-color: #00F5D4; box-shadow: 0 0 20px rgba(0, 245, 212, 0.25); }
+  .insp-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .insp-type { font-size: 13.5px; font-weight: 800; letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px; }
+  .insp-badge { font-size: 10.5px; color: #94A3B8; background: rgba(255,255,255,0.06); padding: 2px 7px; border-radius: 4px; }
+  .insp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .insp-item { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 7px 10px; }
+  .insp-lbl { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.6px; color: #94A3B8; margin-bottom: 2px; }
+  .insp-val { font-size: 14.5px; font-weight: 700; color: #FFFFFF; }
+  .insp-val.neon { color: #00F5D4; }
+
+  /* Center Welcome Drag & Drop Modal */
+  .drop-modal { position: absolute; inset: 0; z-index: 2000; background: rgba(8, 9, 12, 0.84); backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .drop-modal.hidden { display: none; }
+  .drop-card { max-width: 520px; width: 100%; background: #0E1118; border: 2px dashed rgba(0, 245, 212, 0.45); border-radius: 18px; padding: 34px 28px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.85); transition: all 0.2s; }
+  .drop-card.dragover { border-color: #00F5D4; background: rgba(0, 245, 212, 0.08); transform: scale(1.01); }
+  .drop-title { font-size: 20px; font-weight: 800; color: #FFF; margin-bottom: 8px; letter-spacing: 0.4px; }
+  .drop-desc { font-size: 13px; color: #94A3B8; line-height: 1.55; margin-bottom: 20px; }
+  .drop-btn { background: #00F5D4; color: #08090C; border: none; padding: 11px 22px; border-radius: 8px; font-size: 13.5px; font-weight: 800; cursor: pointer; box-shadow: 0 0 18px rgba(0, 245, 212, 0.4); transition: transform 0.15s; }
+  .drop-btn:hover { transform: translateY(-1px); box-shadow: 0 0 25px rgba(0, 245, 212, 0.65); }
+  .drop-status { margin-top: 16px; font-size: 12px; color: #FEE440; font-weight: 600; min-height: 18px; }
+  .badge-row { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-bottom: 22px; }
+  .fmt-badge { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 4px 9px; font-size: 11px; color: #CBD5E1; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<!-- Welcome Drag-and-Drop Overlay (Automatically hides once workouts are loaded) -->
+<div class="drop-modal" id="dropModal">
+  <div class="drop-card" id="dropCard">
+    <div style="font-size:36px;margin-bottom:10px;">⚡</div>
+    <div class="drop-title">STRAVA NEON GPS HEATMAP STUDIO</div>
+    <div class="drop-desc">
+      Drag &amp; drop your workout files here—or select your unzipped Strava <b>activities</b> folder.<br/>
+      Everything is processed <b>100% locally in your browser</b> (nothing is uploaded to any server).
+    </div>
+    <div class="badge-row">
+      <span class="fmt-badge">.GPX / .GPX.GZ</span>
+      <span class="fmt-badge">.FIT / .FIT.GZ</span>
+      <span class="fmt-badge">.TCX / .TCX.GZ</span>
+      <span class="fmt-badge">activities.csv (Optional)</span>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+      <button class="drop-btn" onclick="document.getElementById('filePicker').click()">Select Workout Files</button>
+      <button class="drop-btn" style="background:#FEE440;box-shadow:0 0 18px rgba(254,228,64,0.35);" onclick="document.getElementById('folderPicker').click()">Select Strava Export Folder</button>
+    </div>
+    <div class="drop-status" id="dropStatus"></div>
+    <div style="margin-top:12px;">
+      <span style="font-size:11px;color:#64748B;cursor:pointer;text-decoration:underline;" onclick="document.getElementById('dropModal').classList.add('hidden')">Dismiss &amp; view empty map</span>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="filePicker" multiple accept=".gpx,.tcx,.fit,.gz,.csv,.txt,.xml" style="display:none" onchange="ingestFileList(this.files)" />
+<input type="file" id="folderPicker" webkitdirectory directory multiple style="display:none" onchange="ingestFileList(this.files)" />
+
+<div class="panel">
+  <h2>STRAVA NEON GPS HEATMAP</h2>
+  <div class="sub" id="statsSub">0 Workouts Loaded • Drop files to begin</div>
+
+  <label class="row"><span><input type="checkbox" id="chkRun" checked onchange="draw()"> <span class="swatch" style="background:#00F5D4;box-shadow:0 0 8px #00F5D4"></span>Running</span><span id="cntRun" style="font-size:11px;color:#94A3B8;">0 trks</span></label>
+  <label class="row"><span><input type="checkbox" id="chkRide" checked onchange="draw()"> <span class="swatch" style="background:#FEE440;box-shadow:0 0 8px #FEE440"></span>Rides / Cycling</span><span id="cntRide" style="font-size:11px;color:#94A3B8;">0 trks</span></label>
+  <label class="row"><span><input type="checkbox" id="chkHike" checked onchange="draw()"> <span class="swatch" style="background:#FF2A85;box-shadow:0 0 8px #FF2A85"></span>Hike / Walk</span><span id="cntHike" style="font-size:11px;color:#94A3B8;">0 trks</span></label>
+  <label class="row"><span><input type="checkbox" id="chkOther" checked onchange="draw()"> <span class="swatch" style="background:#9B5DE5;box-shadow:0 0 8px #9B5DE5"></span>Other Workouts</span><span id="cntOther" style="font-size:11px;color:#94A3B8;">0 trks</span></label>
+
+  <div class="sec-title"><span>WORKOUT LOCATIONS (AUTO-CLUSTERED)</span></div>
+  <select id="selLocation" onchange="jumpToLocation()">
+    <option value="">-- Upload workouts to detect hubs --</option>
+  </select>
+
+  <div class="sec-title">
+    <span>YEAR FILTER: <span id="lblYearRange" style="color:#00F5D4;">All Years</span></span>
+    <button class="play-btn" id="btnPlay" onclick="togglePlayYears()">&#9654; Play Years</button>
+  </div>
+  <div class="row" style="font-size:11.5px;">
+    <span>From: <b id="lblYMin">2015</b></span>
+    <input type="range" id="yrMin" min="2010" max="2026" step="1" value="2010" oninput="onYearSlider(true)" style="width:190px;">
+  </div>
+  <div class="row" style="font-size:11.5px;">
+    <span>To: <b id="lblYMax">2026</b></span>
+    <input type="range" id="yrMax" min="2010" max="2026" step="1" value="2026" oninput="onYearSlider(false)" style="width:190px;">
+  </div>
+  <div class="year-pills" id="yearPills"></div>
+
+  <div class="sec-title"><span>DISPLAY &amp; BASEMAP</span></div>
+  <div class="row">
+    <span>Neon Glow</span>
+    <input type="range" id="glow" min="0.4" max="2.5" step="0.1" value="1.0" oninput="draw()" style="width:165px;">
+  </div>
+  <div class="row" style="margin-top:8px;">
+    <span style="white-space:nowrap;margin-right:10px;">Basemap</span>
+    <select id="selBase" onchange="changeBasemap()" style="width:185px;">
+      <option value="esri_dark_gray" selected>Esri Dark Gray Canvas</option>
+      <option value="esri_streets_dark">Esri Dark Streets</option>
+      <option value="esri_topo_dark">Esri Dark Topographic</option>
+      <option value="esri_sat">Darkened Satellite</option>
+      <option value="none">Pure #08090C Void</option>
+    </select>
+  </div>
+
+  <div class="sec-title"><span>ADD FILES &amp; EXPORT</span></div>
+  <div style="display:flex;gap:6px;margin-top:6px;">
+    <button class="yr-btn" style="flex:1;padding:7px;background:rgba(0,245,212,0.14);border-color:#00F5D4;color:#FFF;" onclick="document.getElementById('dropModal').classList.remove('hidden')">+ Add Workouts</button>
+    <button class="yr-btn" style="flex:1;padding:7px;" onclick="downloadSavedMap()">&#128190; Save My Map</button>
+  </div>
+  <div style="margin-top:5px;text-align:right;">
+    <span style="font-size:10px;color:#64748B;cursor:pointer;" onclick="clearAllWorkouts()">Clear All Data</span>
+  </div>
+</div>
+
+<!-- Bottom-Right Hover Inspector -->
+<div class="inspector" id="inspCard">
+  <div class="insp-hdr">
+    <div class="insp-type">
+      <span class="swatch" id="inspSwatch" style="background:#00F5D4;box-shadow:0 0 8px #00F5D4;margin-right:0;"></span>
+      <span id="inspTitle">HOVER ANY NEON ROUTE</span>
+    </div>
+    <span class="insp-badge" id="inspId">Click to Lock</span>
+  </div>
+  <div class="insp-grid">
+    <div class="insp-item">
+      <div class="insp-lbl">Distance</div>
+      <div class="insp-val neon" id="inspDist">— mi</div>
+    </div>
+    <div class="insp-item">
+      <div class="insp-lbl" id="inspPaceLbl">Avg Pace</div>
+      <div class="insp-val neon" id="inspPace">— /mi</div>
+    </div>
+    <div class="insp-item">
+      <div class="insp-lbl">Moving Time</div>
+      <div class="insp-val" id="inspTime">—</div>
+    </div>
+    <div class="insp-item">
+      <div class="insp-lbl">Workout Date</div>
+      <div class="insp-val" id="inspDate">—</div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// Empty by default in template; populated when user uploads files or saves their map
+const SEGS = [];
+const SEEN_STARTS = new Set();
+
+const map = L.map('map', { center: [39.8283, -98.5795], zoom: 4, zoomControl: false, preferCanvas: true });
+L.control.zoom({ position: 'topright' }).addTo(map);
+
+const basemaps = {
+  esri_dark_gray: L.layerGroup([
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', { maxZoom: 16, className: 'native-dark-tiles' }),
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', { maxZoom: 16, className: 'native-dark-tiles' })
+  ]),
+  esri_streets_dark: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, className: 'dark-invert-tiles', attribution: '&copy; Esri' }),
+  esri_topo_dark: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, className: 'dark-invert-tiles', attribution: '&copy; Esri' }),
+  esri_sat: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, className: 'dim-sat-tiles', attribution: '&copy; Esri' })
+};
+let currentTileLayer = basemaps.esri_dark_gray.addTo(map);
+
+function changeBasemap() {
+  const val = document.getElementById('selBase').value;
+  if (currentTileLayer) { map.removeLayer(currentTileLayer); currentTileLayer = null; }
+  if (basemaps[val]) { currentTileLayer = basemaps[val].addTo(map); }
+}
+
+// Drag & Drop Listeners on Window
+window.addEventListener('dragover', e => { e.preventDefault(); document.getElementById('dropModal').classList.remove('hidden'); document.getElementById('dropCard').classList.add('dragover'); });
+window.addEventListener('dragleave', e => { document.getElementById('dropCard').classList.remove('dragover'); });
+window.addEventListener('drop', e => {
+  e.preventDefault();
+  document.getElementById('dropCard').classList.remove('dragover');
+  if (e.dataTransfer && e.dataTransfer.files.length > 0) ingestFileList(e.dataTransfer.files);
+});
+
+function haversineMi(lat1, lon1, lat2, lon2) {
+  const r = Math.PI / 180, dLat = (lat2 - lat1) * r, dLon = (lon2 - lon1) * r;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(dLon/2)**2;
+  return 7917.6 * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+function normalizeType(raw) {
+  const t = (raw || '').toString().trim().toLowerCase();
+  if (t === '1' || t.includes('run')) return 'running';
+  if (t === '2' || t.includes('ride') || t.includes('cycl') || t.includes('bik')) return 'cycling';
+  if (t.includes('hike')) return 'hiking';
+  if (t.includes('walk')) return 'walking';
+  return t || 'running';
+}
+
+async function readBytes(file) {
+  const buf = await file.arrayBuffer();
+  if (file.name.toLowerCase().endsWith('.gz')) {
+    const ds = new DecompressionStream('gzip');
+    const decompressedStream = new Blob([buf]).stream().pipeThrough(ds);
+    return new Uint8Array(await new Response(decompressedStream).arrayBuffer());
+  }
+  return new Uint8Array(buf);
+}
+
+// In-Browser Binary Garmin FIT Parser
+function parseFitBytes(bytes, fallbackType) {
+  const pts = [];
+  let sportType = fallbackType || 'running';
+  if (!bytes || bytes.length < 14) return { sportType, pts };
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const fitEpochMs = Date.UTC(1989, 11, 31, 0, 0, 0);
+  const semiToDeg = 180.0 / 2147483648.0;
+
+  const FIT_SPORT_MAP = { 1: 'running', 2: 'cycling', 11: 'walking', 17: 'hiking', 5: 'swimming', 13: 'snowboard', 12: 'alpine_ski' };
+
+  let pos = 0;
+  while (pos + 14 <= bytes.length) {
+    const hdrSize = bytes[pos];
+    if (hdrSize < 12 || pos + hdrSize > bytes.length) break;
+    if (bytes[pos+8] !== 0x2E || bytes[pos+9] !== 0x46 || bytes[pos+10] !== 0x49 || bytes[pos+11] !== 0x54) break;
+    const dataSize = view.getUint32(pos + 4, true);
+    const endPos = Math.min(bytes.length, pos + hdrSize + dataSize);
+    let cur = pos + hdrSize;
+
+    const defs = {};
+    let lastTs = 0;
+
+    while (cur < endPos) {
+      const recHdr = bytes[cur++];
+      const isCompTs = (recHdr & 0x80) !== 0;
+      if (isCompTs) {
+        const localNum = (recHdr >> 5) & 0x03;
+        const offset = recHdr & 0x1F;
+        lastTs = ((lastTs & 0xFFFFFFE0) >>> 0) + offset;
+        if (offset < (lastTs & 0x1F)) lastTs += 32;
+        cur = readFitRecord(view, bytes, cur, endPos, defs[localNum], lastTs, fitEpochMs, semiToDeg, pts, FIT_SPORT_MAP, s => { if (!fallbackType) sportType = s; }, ts => { lastTs = ts; });
+      } else {
+        const isDef = (recHdr & 0x40) !== 0;
+        const hasDev = (recHdr & 0x20) !== 0;
+        const localNum = recHdr & 0x0F;
+        if (isDef) {
+          if (cur + 5 > endPos) break;
+          cur++; // reserved
+          const bigEnd = bytes[cur++] === 1;
+          const gMsg = view.getUint16(cur, !bigEnd);
+          cur += 2;
+          const numFields = bytes[cur++];
+          if (cur + numFields * 3 > endPos) break;
+          const fields = [];
+          for (let i = 0; i < numFields; i++) {
+            fields.push({ num: bytes[cur], size: bytes[cur+1] });
+            cur += 3;
+          }
+          if (hasDev) {
+            if (cur >= endPos) break;
+            const numDev = bytes[cur++];
+            if (cur + numDev * 3 > endPos) break;
+            let extra = 0;
+            for (let i = 0; i < numDev; i++) { extra += bytes[cur+1]; cur += 3; }
+            if (extra > 0) fields.push({ num: -1, size: extra });
+          }
+          defs[localNum] = { gMsg, bigEnd, fields };
+        } else {
+          cur = readFitRecord(view, bytes, cur, endPos, defs[localNum], lastTs, fitEpochMs, semiToDeg, pts, FIT_SPORT_MAP, s => { if (!fallbackType) sportType = s; }, ts => { lastTs = ts; });
+        }
+      }
+      if (cur < 0) break;
+    }
+    pos = endPos + 2;
+  }
+  return { sportType, pts };
+}
+
+function readFitRecord(view, bytes, cur, endPos, def, lastTs, fitEpochMs, semiToDeg, pts, FIT_SPORT_MAP, onSport, onTs) {
+  if (!def) return -1;
+  const le = !def.bigEnd;
+  let latSemi = null, lonSemi = null, curTs = lastTs;
+  for (let i = 0; i < def.fields.length; i++) {
+    const f = def.fields[i];
+    if (cur + f.size > endPos) return -1;
+    if (f.num === 253 && f.size === 4) {
+      const v = view.getUint32(cur, le);
+      if (v !== 0xFFFFFFFF) { curTs = v; onTs(v); }
+    } else if (def.gMsg === 20 && f.size === 4) {
+      if (f.num === 0) latSemi = view.getInt32(cur, le);
+      else if (f.num === 1) lonSemi = view.getInt32(cur, le);
+    } else if ((def.gMsg === 18 || def.gMsg === 19) && f.num === 5 && f.size === 1) {
+      const sp = bytes[cur];
+      if (FIT_SPORT_MAP[sp]) onSport(FIT_SPORT_MAP[sp]);
+    }
+    cur += f.size;
+  }
+  if (def.gMsg === 20 && latSemi !== null && lonSemi !== null && latSemi !== 0x7FFFFFFF && lonSemi !== 0x7FFFFFFF && latSemi !== 0 && lonSemi !== 0) {
+    const lat = latSemi * semiToDeg, lon = lonSemi * semiToDeg;
+    if (lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+      pts.push({ lat, lon, t: fitEpochMs + curTs * 1000 });
+    }
+  }
+  return cur;
+}
+
+function addTrackFromPoints(trkId, actType, pts, keepEveryN) {
+  if (!pts || pts.length < 2) return 0;
+  const firstT = pts[0].t ? new Date(pts[0].t).toISOString() : '';
+  if (firstT.length >= 16) {
+    const key = firstT.substring(0, 16) + '_' + pts[0].lat.toFixed(3);
+    if (SEEN_STARTS.has(key)) return 0;
+    SEEN_STARTS.add(key);
+  }
+
+  let totMi = 0, totSec = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const dt = (pts[i].t && pts[i-1].t) ? (pts[i].t - pts[i-1].t) / 1000.0 : 1;
+    if (dt > 0 && dt <= 300) {
+      const dMi = haversineMi(pts[i-1].lat, pts[i-1].lon, pts[i].lat, pts[i].lon);
+      if (dMi < 0.5) { totMi += dMi; totSec += dt; }
+    }
+  }
+  const dateStr = firstT.length >= 10 ? firstT.substring(0, 10) : new Date().toISOString().substring(0, 10);
+  const yr = parseInt(dateStr.substring(0, 4), 10) || new Date().getFullYear();
+
+  let curSeg = [[Math.round(pts[0].lat * 1e5) / 1e5, Math.round(pts[0].lon * 1e5) / 1e5]];
+  let segsAdded = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const dt = (pts[i].t && pts[i-1].t) ? (pts[i].t - pts[i-1].t) / 1000.0 : 1;
+    if (dt > 300 || dt < 0) {
+      if (curSeg.length >= 2) { pushSegObj(trkId, actType, dateStr, yr, totMi, totSec, curSeg); segsAdded++; }
+      curSeg = [];
+    }
+    if (i % keepEveryN === 0 || i === pts.length - 1) {
+      curSeg.push([Math.round(pts[i].lat * 1e5) / 1e5, Math.round(pts[i].lon * 1e5) / 1e5]);
+    }
+  }
+  if (curSeg.length >= 2) { pushSegObj(trkId, actType, dateStr, yr, totMi, totSec, curSeg); segsAdded++; }
+  return segsAdded;
+}
+
+function pushSegObj(id, t, d, y, m, s, p) {
+  let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+  for (let i = 0; i < p.length; i++) {
+    const la = p[i][0], lo = p[i][1];
+    if (la < minLat) minLat = la; if (la > maxLat) maxLat = la;
+    if (lo < minLon) minLon = lo; if (lo > maxLon) maxLon = lo;
+  }
+  SEGS.push({
+    id, t: normalizeType(t), d, y,
+    m: Math.round(m * 100) / 100,
+    s: Math.round(s),
+    p,
+    b: { minLat, maxLat, minLon, maxLon, cLat: (minLat + maxLat) / 2, cLon: (minLon + maxLon) / 2 }
+  });
+}
+
+async function ingestFileList(fileList) {
+  const statusEl = document.getElementById('dropStatus');
+  const files = Array.from(fileList);
+  statusEl.textContent = 'Scanning ' + files.length + ' file(s)...';
+
+  // 1. Check if Strava's master activities.csv is included to map Filename -> Activity Type
+  const typeMap = {};
+  const actCsvFile = files.find(f => f.name.toLowerCase() === 'activities.csv');
+  if (actCsvFile) {
+    const csvText = await actCsvFile.text();
+    const lines = csvText.split(/\r?\n/);
+    if (lines.length > 1) {
+      const hdr = lines[0].split(',');
+      const fnIdx = hdr.findIndex(h => h.trim().toLowerCase() === 'filename');
+      const tpIdx = hdr.findIndex(h => h.trim().toLowerCase() === 'activity type');
+      if (fnIdx >= 0 && tpIdx >= 0) {
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(',');
+          if (cols.length > Math.max(fnIdx, tpIdx)) {
+            const leaf = cols[fnIdx].split('/').pop().split('\\').pop().trim();
+            if (leaf) typeMap[leaf] = normalizeType(cols[tpIdx]);
+          }
+        }
+      }
+    }
+  }
+
+  let nextId = SEGS.reduce((m, s) => Math.max(m, s.id), 0) + 1;
+  let processed = 0, addedWorkouts = 0;
+
+  for (const file of files) {
+    const fname = file.name.toLowerCase();
+    if (fname === 'activities.csv') continue;
+    if (!/\.(gpx|tcx|fit|gz|csv|txt|xml)$/i.test(fname)) continue;
+
+    processed++;
+    if (processed % 15 === 0 || processed === files.length) {
+      statusEl.textContent = 'Parsing file ' + processed + ' of ' + files.length + ' (' + addedWorkouts + ' workouts loaded)...';
+      await new Promise(r => setTimeout(r, 0));
+    }
+
+    try {
+      const mappedType = typeMap[file.name] || null;
+      if (fname.endsWith('.fit') || fname.endsWith('.fit.gz')) {
+        const bytes = await readBytes(file);
+        const { sportType, pts } = parseFitBytes(bytes, mappedType);
+        if (addTrackFromPoints(nextId, sportType, pts, 4) > 0) { nextId++; addedWorkouts++; }
+      } else if (fname.endsWith('.csv')) {
+        // Compact CSV (trk_id,type,lat,lon,time)
+        const text = await file.text();
+        const lines = text.split(/\r?\n/);
+        let curId = null, curT = 'running', pts = [];
+        for (let i = 1; i < lines.length; i++) {
+          const p = lines[i].split(',');
+          if (p.length < 5) continue;
+          if (p[0] !== curId) {
+            if (pts.length >= 2 && addTrackFromPoints(nextId, curT, pts, 1) > 0) { nextId++; addedWorkouts++; }
+            curId = p[0]; curT = p[1]; pts = [];
+          }
+          pts.push({ lat: parseFloat(p[2]), lon: parseFloat(p[3]), t: new Date(p[4]).getTime() || 0 });
+        }
+        if (pts.length >= 2 && addTrackFromPoints(nextId, curT, pts, 1) > 0) { nextId++; addedWorkouts++; }
+      } else {
+        // XML: GPX, TCX, or concatenated GPX .txt
+        const bytes = await readBytes(file);
+        const text = new TextDecoder('utf-8').decode(bytes);
+        if (fname.includes('.tcx')) {
+          const sm = text.match(/Sport\s*=\s*["']([^"']+)["']/i);
+          const actType = mappedType || (sm ? normalizeType(sm[1]) : 'running');
+          const pts = [];
+          const re = /<Trackpoint[\s\S]*?<LatitudeDegrees>\s*(-?\d+(?:\.\d+)?)\s*<\/LatitudeDegrees>[\s\S]*?<LongitudeDegrees>\s*(-?\d+(?:\.\d+)?)\s*<\/LongitudeDegrees>(?:[\s\S]*?<Time>\s*(.*?)\s*<\/Time>)?[\s\S]*?<\/Trackpoint>/gi;
+          let m;
+          while ((m = re.exec(text)) !== null) {
+            pts.push({ lat: parseFloat(m[1]), lon: parseFloat(m[2]), t: m[3] ? new Date(m[3]).getTime() : 0 });
+          }
+          if (addTrackFromPoints(nextId, actType, pts, 4) > 0) { nextId++; addedWorkouts++; }
+        } else {
+          // Single or multi-track GPX
+          const trkBlocks = text.match(/<trk\b[\s\S]*?<\/trk>/gi) || [text];
+          for (const blk of trkBlocks) {
+            const tm = blk.match(/<type>\s*(.*?)\s*<\/type>/i);
+            const actType = mappedType || (tm ? normalizeType(tm[1]) : 'running');
+            const pts = [];
+            const ptRe = /<(?:trkpt|rtept)\b[^>]*>([\s\S]*?)<\/(?:trkpt|rtept)>/gi;
+            let pm;
+            while ((pm = ptRe.exec(blk)) !== null) {
+              const tag = pm[0];
+              const laM = tag.match(/\blat\s*=\s*["'](-?\d+(?:\.\d+)?)["']/i);
+              const loM = tag.match(/\blon\s*=\s*["'](-?\d+(?:\.\d+)?)["']/i);
+              if (!laM || !loM) continue;
+              const tiM = pm[1].match(/<time>\s*(.*?)\s*<\/time>/i);
+              pts.push({ lat: parseFloat(laM[1]), lon: parseFloat(loM[1]), t: tiM ? new Date(tiM[1]).getTime() : 0 });
+            }
+            if (addTrackFromPoints(nextId, actType, pts, 4) > 0) { nextId++; addedWorkouts++; }
+          }
+        }
+      }
+    } catch (err) {
+      // Skip unreadable or non-GPS indoor files
+    }
+  }
+
+  if (SEGS.length > 0) {
+    document.getElementById('dropModal').classList.add('hidden');
+    statusEl.textContent = '';
+    rebuildFiltersAndLocations(true);
+  } else {
+    statusEl.textContent = 'No GPS trackpoints found in selected files. Try selecting .gpx, .fit.gz, or .tcx.gz files!';
+  }
+}
+
+function rebuildFiltersAndLocations(flyToPrimary) {
+  if (SEGS.length === 0) return;
+
+  // 1. Recompute Year Bounds & Pills
+  const yearsSet = new Set();
+  SEGS.forEach(s => { if (s.y >= 1990 && s.y <= 2035) yearsSet.add(s.y); });
+  const years = Array.from(yearsSet).sort((a, b) => a - b);
+  const minY = years[0] || 2015, maxY = years[years.length - 1] || 2026;
+  window.activeYearsList = years;
+
+  const yrMinEl = document.getElementById('yrMin'), yrMaxEl = document.getElementById('yrMax');
+  yrMinEl.min = minY; yrMinEl.max = maxY; yrMinEl.value = minY;
+  yrMaxEl.min = minY; yrMaxEl.max = maxY; yrMaxEl.value = maxY;
+  updateYearLabels(minY, maxY);
+
+  const pillsDiv = document.getElementById('yearPills');
+  pillsDiv.innerHTML = '';
+  const allBtn = document.createElement('button');
+  allBtn.className = 'yr-btn active';
+  allBtn.textContent = 'All';
+  allBtn.onclick = function() { setYearRange(minY, maxY, this); };
+  pillsDiv.appendChild(allBtn);
+
+  years.forEach(y => {
+    const b = document.createElement('button');
+    b.className = 'yr-btn';
+    b.textContent = y;
+    b.onclick = function() { setYearRange(y, y, this); };
+    pillsDiv.appendChild(b);
+  });
+
+  // 2. Auto-Cluster Workout Locations & Reverse-Geocode Top Hubs
+  const clusters = [];
+  const trkCenters = {};
+  SEGS.forEach(s => {
+    if (!trkCenters[s.id]) trkCenters[s.id] = { id: s.id, t: s.t, lat: s.b.cLat, lon: s.b.cLon };
+  });
+
+  Object.values(trkCenters).forEach(tc => {
+    let found = null;
+    for (const c of clusters) {
+      if (Math.hypot(tc.lat - c.lat, tc.lon - c.lon) < 0.12) { found = c; break; }
+    }
+    if (found) {
+      found.trks.push(tc);
+      found.lat = found.trks.reduce((a, x) => a + x.lat, 0) / found.trks.length;
+      found.lon = found.trks.reduce((a, x) => a + x.lon, 0) / found.trks.length;
+    } else {
+      clusters.push({ lat: tc.lat, lon: tc.lon, trks: [tc], name: null });
+    }
+  });
+
+  clusters.sort((a, b) => b.trks.length - a.trks.length);
+
+  const sel = document.getElementById('selLocation');
+  sel.innerHTML = '';
+  clusters.forEach((c, idx) => {
+    const runs = c.trks.filter(x => x.t === 'running').length;
+    const opt = document.createElement('option');
+    opt.value = c.lat.toFixed(5) + ',' + c.lon.toFixed(5) + ',13';
+    const labelPrefix = idx === 0 ? '★ Primary Hub' : ('Location #' + (idx + 1));
+    opt.textContent = labelPrefix + ' (' + c.lat.toFixed(2) + '°, ' + c.lon.toFixed(2) + '°) — ' + runs + ' runs / ' + c.trks.length + ' total';
+    sel.appendChild(opt);
+
+    // Fetch city/town name asynchronously via BigDataCloud free client-side reverse geocoder (no key/referer block)
+    if (idx < 15) {
+      fetch('https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=' + c.lat.toFixed(4) + '&longitude=' + c.lon.toFixed(4) + '&localityLanguage=en')
+        .then(r => r.json())
+        .then(d => {
+          const city = d.city || d.locality || d.principalSubdivision || '';
+          const state = d.principalSubdivisionCode ? d.principalSubdivisionCode.replace('US-', '') : (d.countryCode || '');
+          if (city) {
+            opt.textContent = (idx === 0 ? '★ ' : '') + city + (state ? ', ' + state : '') + ' (' + runs + ' runs / ' + c.trks.length + ' total)';
+          }
+        }).catch(() => {});
+    }
+  });
+
+  draw();
+  if (flyToPrimary && clusters.length > 0) {
+    map.flyTo([clusters[0].lat, clusters[0].lon], 13, { animate: true, duration: 1.1 });
+  }
+}
+
+function jumpToLocation() {
+  const val = document.getElementById('selLocation').value;
+  if (!val) return;
+  const parts = val.split(',');
+  map.flyTo([parseFloat(parts[0]), parseFloat(parts[1])], parseInt(parts[2], 10), { animate: true, duration: 1.1 });
+}
+
+function onYearSlider(isMin) {
+  stopPlayYears();
+  let yMin = parseInt(document.getElementById('yrMin').value, 10);
+  let yMax = parseInt(document.getElementById('yrMax').value, 10);
+  if (isMin && yMin > yMax) { yMax = yMin; document.getElementById('yrMax').value = yMax; }
+  if (!isMin && yMax < yMin) { yMin = yMax; document.getElementById('yrMin').value = yMin; }
+  document.querySelectorAll('#yearPills .yr-btn').forEach(b => b.classList.remove('active'));
+  updateYearLabels(yMin, yMax);
+  draw();
+}
+
+function setYearRange(yMin, yMax, btnEl) {
+  stopPlayYears();
+  document.getElementById('yrMin').value = yMin;
+  document.getElementById('yrMax').value = yMax;
+  document.querySelectorAll('#yearPills .yr-btn').forEach(b => b.classList.remove('active'));
+  if (btnEl) btnEl.classList.add('active');
+  updateYearLabels(yMin, yMax);
+  draw();
+}
+
+function updateYearLabels(yMin, yMax) {
+  document.getElementById('lblYMin').textContent = yMin;
+  document.getElementById('lblYMax').textContent = yMax;
+  document.getElementById('lblYearRange').textContent = (yMin === yMax) ? yMin : (yMin + ' – ' + yMax);
+}
+
+let playTimer = null, playIdx = 0;
+function stopPlayYears() {
+  if (playTimer) { clearInterval(playTimer); playTimer = null; document.getElementById('btnPlay').innerHTML = '&#9654; Play Years'; }
+}
+
+function togglePlayYears() {
+  if (playTimer) { stopPlayYears(); return; }
+  const yrs = window.activeYearsList || [2020, 2021, 2022, 2023, 2024, 2025, 2026];
+  if (!yrs.length) return;
+  document.getElementById('btnPlay').innerHTML = '&#9208; Pause';
+  playIdx = 0;
+  const step = () => {
+    const yr = yrs[playIdx];
+    document.getElementById('yrMin').value = yr;
+    document.getElementById('yrMax').value = yr;
+    document.querySelectorAll('#yearPills .yr-btn').forEach(b => b.classList.remove('active'));
+    updateYearLabels(yr, yr);
+    draw();
+    playIdx = (playIdx + 1) % yrs.length;
+  };
+  step();
+  playTimer = setInterval(step, 1200);
+}
+
+let hoveredTrkId = null, lockedTrkId = null;
+
+function formatDuration(totalSecs) {
+  if (!totalSecs || totalSecs <= 0) return '—';
+  const hrs = Math.floor(totalSecs / 3600), mins = Math.floor((totalSecs % 3600) / 60), secs = Math.round(totalSecs % 60);
+  return hrs > 0 ? (hrs + 'h ' + mins + 'm ' + secs + 's') : (mins + 'm ' + secs + 's');
+}
+
+function formatPaceOrSpeed(typeStr, miles, secs) {
+  if (!miles || miles < 0.05 || !secs || secs <= 0) return { lbl: 'Avg Pace', val: '—' };
+  const t = (typeStr || '').toLowerCase();
+  if (t === 'cycling' || t === 'ride') return { lbl: 'Avg Speed', val: (miles / (secs / 3600.0)).toFixed(1) + ' mph' };
+  const paceMin = (secs / 60.0) / miles;
+  if (paceMin > 35) return { lbl: 'Avg Pace', val: '—' };
+  let pM = Math.floor(paceMin), pS = Math.round((paceMin - pM) * 60);
+  if (pS === 60) { pM++; pS = 0; }
+  return { lbl: 'Avg Pace', val: pM + ':' + (pS < 10 ? '0' : '') + pS + ' /mi' };
+}
+
+function getColorForType(tStr) {
+  const t = (tStr || '').toLowerCase();
+  if (t === 'running') return '#00F5D4';
+  if (t === 'cycling' || t === 'ride') return '#FEE440';
+  if (t === 'hiking' || t === 'walking') return '#FF2A85';
+  return '#9B5DE5';
+}
+
+const NeonLayer = L.Layer.extend({
+  onAdd: function(m) {
+    this._m = m;
+    this._c = L.DomUtil.create('canvas', '');
+    this._c.style.position = 'absolute';
+    this._c.style.pointerEvents = 'none';
+    m.getPanes().overlayPane.appendChild(this._c);
+    m.on('moveend zoomend resize', this._reset, this);
+    this._reset();
+  },
+  _reset: function() {
+    const s = this._m.getSize(), tl = this._m.containerPointToLayerPoint([0,0]), dpr = window.devicePixelRatio || 1;
+    L.DomUtil.setPosition(this._c, tl);
+    this._c.width = s.x * dpr; this._c.height = s.y * dpr;
+    this._c.style.width = s.x + 'px'; this._c.style.height = s.y + 'px';
+    this.draw();
+  },
+  draw: function() {
+    const ctx = this._c.getContext('2d'), dpr = window.devicePixelRatio || 1;
+    ctx.save(); ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0, 0, this._c.width/dpr, this._c.height/dpr);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.globalCompositeOperation = 'lighter';
+
+    const g = parseFloat(document.getElementById('glow').value);
+    const yMin = parseInt(document.getElementById('yrMin').value, 10);
+    const yMax = parseInt(document.getElementById('yrMax').value, 10);
+    const showRun = document.getElementById('chkRun').checked, showRide = document.getElementById('chkRide').checked,
+          showHike = document.getElementById('chkHike').checked, showOther = document.getElementById('chkOther').checked;
+
+    const bounds = this._m.getBounds();
+    const sLat = bounds.getSouth(), nLat = bounds.getNorth(), wLon = bounds.getWest(), eLon = bounds.getEast();
+
+    const trkIds = new Set(), cRun = new Set(), cRide = new Set(), cHike = new Set(), cOther = new Set();
+    let visSegs = 0, visPts = 0;
+    const filtered = [];
+    this._visibleSegs = [];
+
+    for (let i = 0; i < SEGS.length; i++) {
+      const s = SEGS[i];
+      if (s.y < yMin || s.y > yMax) continue;
+      const t = (s.t || '').toLowerCase();
+      let col = '#9B5DE5', ok = showOther;
+      if (t === 'running') { col = '#00F5D4'; ok = showRun; cRun.add(s.id); }
+      else if (t === 'cycling' || t === 'ride') { col = '#FEE440'; ok = showRide; cRide.add(s.id); }
+      else if (t === 'hiking' || t === 'walking') { col = '#FF2A85'; ok = showHike; cHike.add(s.id); }
+      else { cOther.add(s.id); }
+      if (!ok) continue;
+
+      trkIds.add(s.id);
+      visSegs++;
+      visPts += s.p.length;
+
+      if (s.b.maxLat < sLat || s.b.minLat > nLat || s.b.maxLon < wLon || s.b.minLon > eLon) continue;
+      filtered.push({ s, col });
+      this._visibleSegs.push(s);
+    }
+
+    document.getElementById('cntRun').textContent = cRun.size + ' trks';
+    document.getElementById('cntRide').textContent = cRide.size + ' trks';
+    document.getElementById('cntHike').textContent = cHike.size + ' trks';
+    document.getElementById('cntOther').textContent = cOther.size + ' trks';
+    document.getElementById('statsSub').textContent =
+      trkIds.size + ' Workouts • ' + visSegs + ' Segments • ' + visPts.toLocaleString() + ' Pts';
+
+    const passes = [[4.2, 0.05*g], [2.0, 0.12*g], [0.85, 0.30*g]];
+    for (const [wMul, aMul] of passes) {
+      for (let i = 0; i < filtered.length; i++) {
+        const { s, col } = filtered[i];
+        ctx.strokeStyle = col; ctx.lineWidth = 1.4 * wMul; ctx.globalAlpha = Math.min(1, aMul);
+        ctx.beginPath();
+        for (let j = 0; j < s.p.length; j++) {
+          const pt = this._m.latLngToContainerPoint(s.p[j]);
+          if (j === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
+        }
+        ctx.stroke();
+      }
+    }
+
+    const activeId = lockedTrkId !== null ? lockedTrkId : hoveredTrkId;
+    if (activeId !== null) {
+      ctx.globalCompositeOperation = 'source-over';
+      for (let i = 0; i < filtered.length; i++) {
+        const { s, col } = filtered[i];
+        if (s.id !== activeId) continue;
+        ctx.strokeStyle = col; ctx.lineWidth = 7.0; ctx.globalAlpha = 0.55;
+        ctx.beginPath();
+        for (let j = 0; j < s.p.length; j++) {
+          const pt = this._m.latLngToContainerPoint(s.p[j]);
+          if (j === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
+        }
+        ctx.stroke();
+        ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2.6; ctx.globalAlpha = 0.98;
+        ctx.beginPath();
+        for (let j = 0; j < s.p.length; j++) {
+          const pt = this._m.latLngToContainerPoint(s.p[j]);
+          if (j === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
+        }
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+});
+
+const neon = new NeonLayer().addTo(map);
+function draw() { neon.draw(); }
+
+function distToSegmentSq(px, py, ax, ay, bx, by) {
+  const l2 = (bx - ax)*(bx - ax) + (by - ay)*(by - ay);
+  if (l2 === 0) return (px - ax)*(px - ax) + (py - ay)*(py - ay);
+  let t = Math.max(0, Math.min(1, ((px - ax)*(bx - ax) + (py - ay)*(by - ay)) / l2));
+  const projX = ax + t * (bx - ax), projY = ay + t * (by - ay);
+  return (px - projX)*(px - projX) + (py - projY)*(py - projY);
+}
+
+function findClosestSegment(mousePt) {
+  const vis = neon._visibleSegs || [];
+  let bestSeg = null, minSq = 144;
+  for (let i = 0; i < vis.length; i++) {
+    const s = vis[i], pts = s.p, step = Math.max(1, Math.floor(pts.length / 120));
+    let prevP = map.latLngToContainerPoint(pts[0]);
+    for (let j = step; j < pts.length; j += step) {
+      const curP = map.latLngToContainerPoint(pts[j]);
+      const dSq = distToSegmentSq(mousePt.x, mousePt.y, prevP.x, prevP.y, curP.x, curP.y);
+      if (dSq < minSq) { minSq = dSq; bestSeg = s; }
+      prevP = curP;
+    }
+  }
+  return bestSeg;
+}
+
+function updateInspectorUI(seg, isLocked) {
+  const card = document.getElementById('inspCard');
+  if (!seg) {
+    card.classList.remove('active');
+    document.getElementById('inspSwatch').style.background = '#00F5D4';
+    document.getElementById('inspTitle').textContent = 'HOVER ANY NEON ROUTE';
+    document.getElementById('inspId').textContent = 'Click to Lock';
+    document.getElementById('inspDist').textContent = '— mi';
+    document.getElementById('inspPaceLbl').textContent = 'Avg Pace';
+    document.getElementById('inspPace').textContent = '— /mi';
+    document.getElementById('inspTime').textContent = '—';
+    document.getElementById('inspDate').textContent = '—';
+    return;
+  }
+  card.classList.add('active');
+  const col = getColorForType(seg.t);
+  document.getElementById('inspSwatch').style.background = col;
+  document.getElementById('inspSwatch').style.boxShadow = '0 0 8px ' + col;
+  document.getElementById('inspTitle').textContent = (seg.t || 'WORKOUT').toUpperCase();
+  document.getElementById('inspId').textContent = (isLocked ? '🔒 Locked • ' : '') + 'Workout #' + seg.id;
+  document.getElementById('inspDist').textContent = seg.m.toFixed(2) + ' mi';
+  const ps = formatPaceOrSpeed(seg.t, seg.m, seg.s);
+  document.getElementById('inspPaceLbl').textContent = ps.lbl;
+  document.getElementById('inspPace').textContent = ps.val;
+  document.getElementById('inspTime').textContent = formatDuration(seg.s);
+  document.getElementById('inspDate').textContent = seg.d;
+}
+
+map.on('mousemove', e => {
+  if (lockedTrkId !== null) return;
+  const best = findClosestSegment(map.latLngToContainerPoint(e.latlng));
+  const nextId = best ? best.id : null;
+  if (nextId !== hoveredTrkId) { hoveredTrkId = nextId; updateInspectorUI(best, false); neon.draw(); }
+});
+
+map.on('click', e => {
+  const best = findClosestSegment(map.latLngToContainerPoint(e.latlng));
+  if (best) {
+    lockedTrkId = (lockedTrkId === best.id) ? null : best.id;
+    hoveredTrkId = best.id;
+    updateInspectorUI(best, lockedTrkId !== null);
+  } else {
+    lockedTrkId = null; hoveredTrkId = null; updateInspectorUI(null, false);
+  }
+  neon.draw();
+});
+
+function downloadSavedMap() {
+  const cleanSegs = SEGS.map(({id, t, d, y, m, s, p}) => ({id, t, d, y, m, s, p}));
+  document.getElementById('dropModal').classList.add('hidden');
+  let src = document.documentElement.outerHTML;
+  src = src.replace(/const SEGS = \[[\s\S]*?\];/, 'const SEGS = ' + JSON.stringify(cleanSegs) + ';');
+  const blob = new Blob(['<!DOCTYPE html>\n' + src], { type: 'text/html' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'my_strava_neon_heatmap.html';
+  a.click();
+}
+
+function clearAllWorkouts() {
+  if (!confirm('Clear all loaded workouts and reset to a blank template?')) return;
+  SEGS.length = 0;
+  SEEN_STARTS.clear();
+  draw();
+  document.getElementById('dropModal').classList.remove('hidden');
+}
+
+// Recompute bounding boxes if opened from a saved copy that already has SEGS populated
+if (SEGS.length > 0) {
+  document.getElementById('dropModal').classList.add('hidden');
+  SEGS.forEach(s => {
+    let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+    s.p.forEach(([la, lo]) => { if (la < minLat) minLat = la; if (la > maxLat) maxLat = la; if (lo < minLon) minLon = lo; if (lo > maxLon) maxLon = lo; });
+    s.b = { minLat, maxLat, minLon, maxLon, cLat: (minLat + maxLat) / 2, cLon: (minLon + maxLon) / 2 };
+  });
+  rebuildFiltersAndLocations(true);
+}
+</script>
+</body>
+</html>
